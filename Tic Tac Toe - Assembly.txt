@@ -1,0 +1,386 @@
+; Tic Tac Toe Game in x86-64 Assembly (NASM syntax for Linux)
+; Assemble: nasm -f elf64 tictactoe.asm -o tictactoe.o
+; Link: ld tictactoe.o -o tictactoe
+; Run: ./tictactoe
+
+section .data
+    board: db '1','2','3','4','5','6','7','8','9'
+    
+    welcome: db 10,'=== TIC TAC TOE ===',10,0
+    welcome_len: equ $-welcome
+    
+    player_msg: db 10,'Player ',0
+    player_msg_len: equ $-player_msg
+    
+    turn_msg: db "'s turn (1-9): ",0
+    turn_msg_len: equ $-turn_msg
+    
+    invalid_msg: db 'Invalid move! Try again.',10,0
+    invalid_msg_len: equ $-invalid_msg
+    
+    win_msg: db 10,'Player ',0
+    win_msg_len: equ $-win_msg
+    
+    wins_msg: db ' wins!',10,10,0
+    wins_msg_len: equ $-wins_msg
+    
+    draw_msg: db 10,'It''s a draw!',10,10,0
+    draw_msg_len: equ $-draw_msg
+    
+    newline: db 10
+    space: db ' '
+    pipe: db '|'
+    dash: db '-'
+    
+    current_player: db 'X'
+    move_count: db 0
+    input_buffer: times 10 db 0
+
+section .bss
+    
+section .text
+    global _start
+
+_start:
+    ; Print welcome message
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, welcome
+    mov rdx, welcome_len
+    syscall
+    
+game_loop:
+    ; Display board
+    call display_board
+    
+    ; Check for win or draw
+    call check_winner
+    cmp al, 1
+    je game_won
+    
+    call check_draw
+    cmp al, 1
+    je game_draw
+    
+    ; Get player move
+    call get_move
+    
+    ; Make move
+    call make_move
+    
+    ; Switch player
+    call switch_player
+    
+    jmp game_loop
+
+game_won:
+    call display_board
+    
+    ; Print "Player "
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, win_msg
+    mov rdx, win_msg_len
+    syscall
+    
+    ; Print winning player
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, current_player
+    mov rdx, 1
+    syscall
+    
+    ; Print " wins!"
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, wins_msg
+    mov rdx, wins_msg_len
+    syscall
+    
+    jmp exit_game
+
+game_draw:
+    call display_board
+    
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, draw_msg
+    mov rdx, draw_msg_len
+    syscall
+    
+exit_game:
+    mov rax, 60
+    xor rdi, rdi
+    syscall
+
+; Display the board
+display_board:
+    push rbx
+    push rcx
+    
+    ; Print newline
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, newline
+    mov rdx, 1
+    syscall
+    
+    xor rcx, rcx
+    
+.print_loop:
+    ; Print cell
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [board + rcx]
+    mov rdx, 1
+    syscall
+    
+    inc rcx
+    
+    ; Check if we need a separator
+    mov rax, rcx
+    xor rdx, rdx
+    mov rbx, 3
+    div rbx
+    
+    cmp rdx, 0
+    je .end_of_row
+    
+    ; Print pipe separator
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, pipe
+    mov rdx, 1
+    syscall
+    
+    jmp .continue
+    
+.end_of_row:
+    ; Print newline
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, newline
+    mov rdx, 1
+    syscall
+    
+    ; Print dash line if not last row
+    cmp rcx, 9
+    je .continue
+    
+    mov rbx, 5
+.dash_loop:
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, dash
+    mov rdx, 1
+    syscall
+    dec rbx
+    jnz .dash_loop
+    
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, newline
+    mov rdx, 1
+    syscall
+    
+.continue:
+    cmp rcx, 9
+    jl .print_loop
+    
+    pop rcx
+    pop rbx
+    ret
+
+; Get player move
+get_move:
+    push rbx
+    
+.input_loop:
+    ; Print "Player X's turn"
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, player_msg
+    mov rdx, player_msg_len
+    syscall
+    
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, current_player
+    mov rdx, 1
+    syscall
+    
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, turn_msg
+    mov rdx, turn_msg_len
+    syscall
+    
+    ; Read input
+    mov rax, 0
+    mov rdi, 0
+    mov rsi, input_buffer
+    mov rdx, 10
+    syscall
+    
+    ; Convert ASCII to number
+    movzx rax, byte [input_buffer]
+    sub rax, '0'
+    
+    ; Validate (1-9)
+    cmp rax, 1
+    jl .invalid
+    cmp rax, 9
+    jg .invalid
+    
+    ; Check if position is available
+    dec rax
+    movzx rbx, byte [board + rax]
+    cmp rbx, 'X'
+    je .invalid
+    cmp rbx, 'O'
+    je .invalid
+    
+    ; Store valid position
+    mov [input_buffer + 9], al
+    pop rbx
+    ret
+    
+.invalid:
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, invalid_msg
+    mov rdx, invalid_msg_len
+    syscall
+    jmp .input_loop
+
+; Make the move
+make_move:
+    movzx rax, byte [input_buffer + 9]
+    movzx rbx, byte [current_player]
+    mov [board + rax], bl
+    
+    movzx rax, byte [move_count]
+    inc rax
+    mov [move_count], al
+    ret
+
+; Switch player
+switch_player:
+    movzx rax, byte [current_player]
+    cmp rax, 'X'
+    je .switch_to_o
+    mov byte [current_player], 'X'
+    ret
+.switch_to_o:
+    mov byte [current_player], 'O'
+    ret
+
+; Check for winner
+check_winner:
+    push rbx
+    push rcx
+    push rdx
+    
+    ; Check rows
+    mov rcx, 0
+.check_rows:
+    mov rax, rcx
+    imul rax, 3
+    
+    movzx rbx, byte [board + rax]
+    movzx rdx, byte [board + rax + 1]
+    cmp rbx, rdx
+    jne .next_row
+    
+    movzx rdx, byte [board + rax + 2]
+    cmp rbx, rdx
+    jne .next_row
+    
+    ; Check if it's X or O (not a number)
+    cmp rbx, 'X'
+    je .winner_found
+    cmp rbx, 'O'
+    je .winner_found
+    
+.next_row:
+    inc rcx
+    cmp rcx, 3
+    jl .check_rows
+    
+    ; Check columns
+    mov rcx, 0
+.check_cols:
+    movzx rbx, byte [board + rcx]
+    movzx rdx, byte [board + rcx + 3]
+    cmp rbx, rdx
+    jne .next_col
+    
+    movzx rdx, byte [board + rcx + 6]
+    cmp rbx, rdx
+    jne .next_col
+    
+    cmp rbx, 'X'
+    je .winner_found
+    cmp rbx, 'O'
+    je .winner_found
+    
+.next_col:
+    inc rcx
+    cmp rcx, 3
+    jl .check_cols
+    
+    ; Check diagonal 1 (0,4,8)
+    movzx rbx, byte [board]
+    movzx rdx, byte [board + 4]
+    cmp rbx, rdx
+    jne .check_diag2
+    
+    movzx rdx, byte [board + 8]
+    cmp rbx, rdx
+    jne .check_diag2
+    
+    cmp rbx, 'X'
+    je .winner_found
+    cmp rbx, 'O'
+    je .winner_found
+    
+    ; Check diagonal 2 (2,4,6)
+.check_diag2:
+    movzx rbx, byte [board + 2]
+    movzx rdx, byte [board + 4]
+    cmp rbx, rdx
+    jne .no_winner
+    
+    movzx rdx, byte [board + 6]
+    cmp rbx, rdx
+    jne .no_winner
+    
+    cmp rbx, 'X'
+    je .winner_found
+    cmp rbx, 'O'
+    je .winner_found
+    
+.no_winner:
+    xor rax, rax
+    pop rdx
+    pop rcx
+    pop rbx
+    ret
+    
+.winner_found:
+    mov rax, 1
+    pop rdx
+    pop rcx
+    pop rbx
+    ret
+
+; Check for draw
+check_draw:
+    movzx rax, byte [move_count]
+    cmp rax, 9
+    jl .not_draw
+    mov rax, 1
+    ret
+.not_draw:
+    xor rax, rax
+    ret
